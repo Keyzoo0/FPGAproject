@@ -52,9 +52,16 @@ function fmtTime(value, paused, refEnd, windowMs) {
   return Math.round(dtMs / 1000) + 's';
 }
 
-export default function LeakChart({ samplesRef, channel, tripRaw, leak }) {
+// Saat window < 1 s, grafik memakai buffer hasil resample 10 ms (sample-and-hold)
+// agar punya titik tiap 0.01 s. Data asli tetap di samplesRef (untuk CSV & window panjang).
+const RESAMPLE_MS = 10;
+const RESAMPLE_MAX = 600; // ~6 s @ 100 Hz
+
+export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, leak }) {
   const chartRef = useRef(null);
   const dragRef = useRef({ active: false, startX: 0, startPan: 0 });
+  const resampleRef = useRef([]);
+  const lastModeRef = useRef(null);
 
   const [windowSec, setWindowSec] = useState(20);
   const [isPaused, setIsPaused] = useState(false);
@@ -89,26 +96,32 @@ export default function LeakChart({ samplesRef, channel, tripRaw, leak }) {
         refEndRef.current = refEnd;
         const viewEnd = refEnd + panOffsetRef.current;
         const viewStart = viewEnd - windowMs;
-        const samples = samplesRef.current;
         const ch = channelRef.current;
+        // < 1 s → pakai buffer resample 10 ms; selain itu pakai data asli
+        const useResample = windowSecRef.current < 1;
+        const samples = useResample ? resampleRef.current : samplesRef.current;
 
         // Skip redraw entirely when nothing visible has changed (e.g. paused & idle)
         const pv = prevViewRef.current;
-        if (pv.vs === viewStart && pv.ve === viewEnd && pv.len === samples.length && pv.ch === ch) {
+        if (
+          pv.vs === viewStart && pv.ve === viewEnd &&
+          pv.len === samples.length && pv.ch === ch && pv.mode === useResample
+        ) {
           raf = requestAnimationFrame(draw);
           return;
         }
-        prevViewRef.current = { vs: viewStart, ve: viewEnd, len: samples.length, ch };
+        prevViewRef.current = { vs: viewStart, ve: viewEnd, len: samples.length, ch, mode: useResample };
 
         const ds0 = chart.data.datasets[0];
-        // Rebuild point array only when the buffer or channel actually changed
-        if (samples.length !== lastLenRef.current || ch !== lastChRef.current) {
+        // Rebuild point array only when buffer / channel / mode changed
+        if (samples.length !== lastLenRef.current || ch !== lastChRef.current || useResample !== lastModeRef.current) {
           ds0.data = samples.map((s) => ({ x: s.t, y: s.mv }));
           ds0.borderColor = CH_COLORS[ch];
           ds0.backgroundColor = CH_COLORS[ch] + '22';
           ds0.label = `${CH_NAMES[ch]} (mV)`;
           lastLenRef.current = samples.length;
           lastChRef.current = ch;
+          lastModeRef.current = useResample;
         }
 
         const ds1 = chart.data.datasets[1];
@@ -131,6 +144,24 @@ export default function LeakChart({ samplesRef, channel, tripRaw, leak }) {
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
   }, [samplesRef]);
+
+  // ---- Resampler 10 ms (aktif hanya saat window < 1 s & tidak paused) ----
+  useEffect(() => {
+    if (windowSec >= 1 || isPaused) return;
+    // backfill dari data asli terakhir supaya grafik tidak kosong saat mulai
+    const cutoff = nowMs() - 2000;
+    resampleRef.current = samplesRef.current
+      .filter((s) => s.t >= cutoff)
+      .map((s) => ({ t: s.t, mv: s.mv, raw: s.raw }));
+    const id = setInterval(() => {
+      const l = latestRef.current;
+      if (!l) return;
+      const buf = resampleRef.current;
+      buf.push({ t: nowMs(), mv: l.mv, raw: l.raw }); // tahan nilai terakhir
+      if (buf.length > RESAMPLE_MAX) buf.splice(0, buf.length - RESAMPLE_MAX);
+    }, RESAMPLE_MS);
+    return () => clearInterval(id);
+  }, [windowSec, isPaused, samplesRef, latestRef]);
 
   // Space = pause/resume
   useEffect(() => {
@@ -173,7 +204,7 @@ export default function LeakChart({ samplesRef, channel, tripRaw, leak }) {
     const dx = e.clientX - drag.startX;
     let p = drag.startPan - dx / pxPerMs;
     if (p > 0) p = 0;
-    const samples = samplesRef.current;
+    const samples = windowSecRef.current < 1 ? resampleRef.current : samplesRef.current;
     if (samples.length) {
       const minPan = samples[0].t - pauseEndRef.current + windowMs * 0.1;
       if (p < minPan) p = minPan;
@@ -326,6 +357,12 @@ export default function LeakChart({ samplesRef, channel, tripRaw, leak }) {
         >
           💾 Export CSV
         </button>
+
+        {windowSec < 1 && (
+          <span className="rounded bg-accent/15 px-2 py-1 text-xs text-accent">
+            resample 10&nbsp;ms
+          </span>
+        )}
       </div>
 
       {/* Chart */}

@@ -31,6 +31,8 @@ export default function App() {
   // Buffer grafik di ref (di luar React state) supaya chart bisa di-update
   // imperatif via requestAnimationFrame, tidak memicu re-render tiap sampel.
   const samplesRef = useRef([]);
+  // Nilai terbaru di ref (dipakai resampler 10 ms sisi-chart).
+  const latestRef = useRef(null);
 
   const channelRef = useRef(channel);
   useEffect(() => { channelRef.current = channel; }, [channel]);
@@ -40,6 +42,7 @@ export default function App() {
     if (ch !== channelRef.current) return; // ignore frames from other channel
     const mv = rawToMv(raw);
     setLatest({ raw, mv, t });
+    latestRef.current = { raw, mv, t };
     const buf = samplesRef.current;
     buf.push({ t, mv, raw });
     if (buf.length > MAX_BUFFER) buf.splice(0, buf.length - MAX_BUFFER);
@@ -73,6 +76,7 @@ export default function App() {
     (ch) => {
       setChannel(ch);
       samplesRef.current = [];
+      latestRef.current = null;
       setLatest(null);
       if (connState === ConnState.CONNECTED) {
         send(`SEL:${ch}`);
@@ -165,6 +169,7 @@ export default function App() {
           channel={channel}
           latest={latest}
           samplesRef={samplesRef}
+          latestRef={latestRef}
           alarm={alarm}
           tripRaw={tripRaw}
         />
