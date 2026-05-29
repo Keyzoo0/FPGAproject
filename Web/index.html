@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADC Monitor — FPGA Spartan-6 + ADS1115 (4-Channel)</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:,">
+</head>
+<body>
+    <header>
+        <h1>ADC Monitor Dashboard</h1>
+        <p class="subtitle">FPGA Spartan-6 XC6SLX16 + ADS1115 (4 channel) → Arduino → Web</p>
+    </header>
+
+    <main>
+        <!-- ============ FLOW DIAGRAM ============ -->
+        <section class="flow-section">
+            <h2>Signal Flow</h2>
+            <div class="flow">
+                <div class="flow-node" id="node-sensor">
+                    <div class="icon">⚡</div>
+                    <div class="label">Analog Sensors</div>
+                    <div class="sub">A0–A3<br>0–4 V</div>
+                </div>
+                <div class="arrow"></div>
+                <div class="flow-node" id="node-ads">
+                    <div class="icon">📊</div>
+                    <div class="label">ADS1115</div>
+                    <div class="sub">16-bit ADC<br>I²C @ 100kHz</div>
+                </div>
+                <div class="arrow"></div>
+                <div class="flow-node" id="node-fpga">
+                    <div class="icon">🟪</div>
+                    <div class="label">FPGA Spartan-6</div>
+                    <div class="sub">I²C Master<br>UART TX</div>
+                </div>
+                <div class="arrow"></div>
+                <div class="flow-node" id="node-arduino">
+                    <div class="icon">🟦</div>
+                    <div class="label">Arduino Uno</div>
+                    <div class="sub">UART → USB<br>@ 9600 baud</div>
+                </div>
+                <div class="arrow"></div>
+                <div class="flow-node" id="node-web">
+                    <div class="icon">🌐</div>
+                    <div class="label">Web Dashboard</div>
+                    <div class="sub">Web Serial API</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ CONNECT PANEL ============ -->
+        <section class="connect-section">
+            <button id="btn-connect" class="btn-primary">🔌 Connect Serial Port</button>
+            <button id="btn-disconnect" class="btn-secondary" disabled>Disconnect</button>
+            <div class="status-pill">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-text">Disconnected</span>
+            </div>
+            <div class="live-indicator">
+                <span class="live-dot" id="live-dot"></span>
+                <span id="live-rate">— Hz</span>
+            </div>
+        </section>
+
+        <!-- ============ CHANNEL TABS ============ -->
+        <section class="channel-selector">
+            <h2>Active Channel</h2>
+            <div class="channel-tabs">
+                <button class="ch-tab active" data-ch="0">
+                    <span class="ch-color" style="background:#58a6ff"></span>
+                    <span class="ch-name">AIN0</span>
+                    <span class="ch-mini" id="mini-0">— mV</span>
+                </button>
+                <button class="ch-tab" data-ch="1">
+                    <span class="ch-color" style="background:#3fb950"></span>
+                    <span class="ch-name">AIN1</span>
+                    <span class="ch-mini" id="mini-1">— mV</span>
+                </button>
+                <button class="ch-tab" data-ch="2">
+                    <span class="ch-color" style="background:#d29922"></span>
+                    <span class="ch-name">AIN2</span>
+                    <span class="ch-mini" id="mini-2">— mV</span>
+                </button>
+                <button class="ch-tab" data-ch="3">
+                    <span class="ch-color" style="background:#f85149"></span>
+                    <span class="ch-name">AIN3</span>
+                    <span class="ch-mini" id="mini-3">— mV</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ============ READING CARDS ============ -->
+        <section class="reading-grid">
+            <div class="card big">
+                <div class="card-title">Voltage <span id="card-ch-label">AIN0</span></div>
+                <div class="card-value" id="val-mv">—</div>
+                <div class="card-unit">mV</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Voltage</div>
+                <div class="card-value" id="val-v">—</div>
+                <div class="card-unit">V</div>
+            </div>
+            <div class="card">
+                <div class="card-title">ADC Raw</div>
+                <div class="card-value" id="val-raw">—</div>
+                <div class="card-unit">16-bit</div>
+            </div>
+            <div class="card">
+                <div class="card-title">Buffer</div>
+                <div class="card-value" id="val-buf">0</div>
+                <div class="card-unit">samples</div>
+            </div>
+        </section>
+
+        <!-- ============ CHART ============ -->
+        <section class="chart-section">
+            <div class="chart-header">
+                <h2>Time Series — <span id="chart-ch-label">AIN0</span></h2>
+                <div class="chart-controls">
+                    <button id="btn-pause" class="ctrl-btn" title="Pause / Resume (Space)">
+                        <span id="pause-icon">⏸</span> <span id="pause-label">Pause</span>
+                    </button>
+                    <label class="ctrl-label">
+                        Window:
+                        <select id="zoom-select" class="ctrl-select">
+                            <option value="0.5">0.5 s</option>
+                            <option value="1">1 s</option>
+                            <option value="2">2 s</option>
+                            <option value="5">5 s</option>
+                            <option value="10">10 s</option>
+                            <option value="20" selected>20 s</option>
+                            <option value="30">30 s</option>
+                            <option value="60">1 min</option>
+                            <option value="300">5 min</option>
+                        </select>
+                    </label>
+                    <label class="ctrl-label">
+                        <input type="checkbox" id="overlay-toggle"> Overlay all channels
+                    </label>
+                    <button id="btn-export" class="ctrl-btn" title="Export buffered data to CSV">
+                        💾 Export CSV
+                    </button>
+                </div>
+            </div>
+            <div class="chart-wrap">
+                <canvas id="chart"></canvas>
+                <div id="tooltip" class="chart-tooltip"></div>
+                <div id="pause-badge" class="pause-badge">⏸ PAUSED</div>
+            </div>
+            <div class="chart-hint">
+                Tip: <kbd>Space</kbd> pause/resume · double-click to reset pan · drag to pan (paused) · hover for value
+            </div>
+        </section>
+
+        <!-- ============ ALL CHANNELS PANEL ============ -->
+        <section class="all-channels">
+            <h2>All Channels Live</h2>
+            <div class="all-grid">
+                <div class="all-card" data-ch="0">
+                    <div class="all-name" style="color:#58a6ff">AIN0</div>
+                    <div class="all-value" id="all-0">—</div>
+                    <div class="all-unit">mV</div>
+                    <div class="all-bar"><div class="all-bar-fill" id="bar-0" style="background:#58a6ff"></div></div>
+                </div>
+                <div class="all-card" data-ch="1">
+                    <div class="all-name" style="color:#3fb950">AIN1</div>
+                    <div class="all-value" id="all-1">—</div>
+                    <div class="all-unit">mV</div>
+                    <div class="all-bar"><div class="all-bar-fill" id="bar-1" style="background:#3fb950"></div></div>
+                </div>
+                <div class="all-card" data-ch="2">
+                    <div class="all-name" style="color:#d29922">AIN2</div>
+                    <div class="all-value" id="all-2">—</div>
+                    <div class="all-unit">mV</div>
+                    <div class="all-bar"><div class="all-bar-fill" id="bar-2" style="background:#d29922"></div></div>
+                </div>
+                <div class="all-card" data-ch="3">
+                    <div class="all-name" style="color:#f85149">AIN3</div>
+                    <div class="all-value" id="all-3">—</div>
+                    <div class="all-unit">mV</div>
+                    <div class="all-bar"><div class="all-bar-fill" id="bar-3" style="background:#f85149"></div></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ LOG ============ -->
+        <section class="log-section">
+            <h2>Serial Log</h2>
+            <div class="log-controls">
+                <button id="btn-clear">Clear</button>
+                <label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label>
+            </div>
+            <pre id="log"></pre>
+        </section>
+
+        <!-- ============ INFO ============ -->
+        <section class="info-section">
+            <h2>Configuration</h2>
+            <table class="info-table">
+                <tr><td>Baud rate</td><td>9600 8N1</td></tr>
+                <tr><td>ADS1115 PGA</td><td>±4.096 V</td></tr>
+                <tr><td>ADC resolution</td><td>16-bit signed</td></tr>
+                <tr><td>LSB value</td><td>125 μV / 0.125 mV</td></tr>
+                <tr><td>I²C address</td><td>0x48</td></tr>
+                <tr><td>Channels</td><td>AIN0–AIN3 (4 channel single-ended)</td></tr>
+                <tr><td>Mode</td><td>Single-shot (per channel)</td></tr>
+                <tr><td>Update rate</td><td>10 Hz (semua 4 channel)</td></tr>
+                <tr><td>Format</td><td><code>+CH0,+CH1,+CH2,+CH3\r\n</code></td></tr>
+                <tr><td>History buffer</td><td>3000 sample/channel (5 menit)</td></tr>
+            </table>
+        </section>
+    </main>
+
+    <footer>
+        <p>SKRIPSI — FPGA Spartan-6 + ADS1115 4-Channel ADC Reader → Web Dashboard</p>
+        <p class="note">⚠ Web Serial API hanya support di Chrome/Edge</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
