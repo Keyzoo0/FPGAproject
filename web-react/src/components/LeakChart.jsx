@@ -64,11 +64,12 @@ function fmtTime(value, paused, refEnd, windowMs) {
 const RESAMPLE_MS = 10;
 const RESAMPLE_MAX = 600; // ~6 s @ 100 Hz
 
-export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, maxValRaw, leak }) {
+export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, minValRaw, maxValRaw, leak }) {
   const chartRef = useRef(null);
   const dragRef = useRef({ active: false, startX: 0, startPan: 0 });
   const resampleRef = useRef([]);
   const lastModeRef = useRef(null);
+  const minRef = useRef(minValRaw);
   const maxRef = useRef(maxValRaw);
 
   const [windowSec, setWindowSec] = useState(20);
@@ -92,6 +93,7 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, max
   useEffect(() => { panOffsetRef.current = panOffsetMs; }, [panOffsetMs]);
   useEffect(() => { channelRef.current = channel; }, [channel]);
   useEffect(() => { tripRef.current = tripRaw; }, [tripRaw]);
+  useEffect(() => { minRef.current = minValRaw; }, [minValRaw]);
   useEffect(() => { maxRef.current = maxValRaw; }, [maxValRaw]);
 
   // ---- Single imperative draw loop (decoupled from React re-renders) ----
@@ -148,10 +150,11 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, max
         chart.options.scales.x.min = viewStart;
         chart.options.scales.x.max = viewEnd;
 
-        // Y axis konstan: 0 .. 2 × maxVal (fallback autoscale bila maxVal belum ada)
+        // Y axis konstan: (minVal − 5) .. 2 × maxVal (fallback autoscale bila belum ada)
         const maxMv = Number.isFinite(maxRef.current) ? rawToMv(maxRef.current) : null;
+        const minMv = Number.isFinite(minRef.current) ? rawToMv(minRef.current) : null;
         if (maxMv !== null && maxMv > 0) {
-          chart.options.scales.y.min = 0;
+          chart.options.scales.y.min = (minMv !== null ? minMv : 0) - 5;
           chart.options.scales.y.max = 2 * maxMv;
         } else {
           chart.options.scales.y.min = undefined;

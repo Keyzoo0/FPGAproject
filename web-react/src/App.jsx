@@ -172,6 +172,7 @@ export default function App() {
           latestRef={latestRef}
           alarm={alarm}
           tripRaw={tripRaw}
+          minValRaw={c.min}
           maxValRaw={c.max}
         />
       )}
