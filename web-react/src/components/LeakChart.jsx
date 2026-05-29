@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -35,7 +35,6 @@ function fmtTime(value, paused, refEnd, windowMs) {
     const mm = String(d.getMinutes()).padStart(2, '0');
     const ss = String(d.getSeconds()).padStart(2, '0');
     if (windowMs < 100) {
-      // resolusi 0.01 ms → ss.mmm + 2 digit sub-ms
       const whole = Math.floor(value);
       const ms = String(whole % 1000).padStart(3, '0');
       const sub = String(Math.round((value - whole) * 100)).padStart(2, '0');
@@ -47,88 +46,146 @@ function fmtTime(value, paused, refEnd, windowMs) {
     return `${hh}:${mm}:${ss}`;
   }
   const dtMs = value - refEnd;
-  if (windowMs < 100) return dtMs.toFixed(2) + ' ms'; // 0.01 ms
-  if (windowMs < 1000) return (dtMs / 1000).toFixed(3) + 's'; // 1 ms
+  if (windowMs < 100) return dtMs.toFixed(2) + ' ms';
+  if (windowMs < 1000) return (dtMs / 1000).toFixed(3) + 's';
   if (windowMs < 10000) return (dtMs / 1000).toFixed(1) + 's';
   return Math.round(dtMs / 1000) + 's';
 }
 
-export default function LeakChart({ samples, channel, tripRaw, leak }) {
-  const color = CH_COLORS[channel];
+export default function LeakChart({ samplesRef, channel, tripRaw, leak }) {
   const chartRef = useRef(null);
   const dragRef = useRef({ active: false, startX: 0, startPan: 0 });
 
   const [windowSec, setWindowSec] = useState(20);
   const [isPaused, setIsPaused] = useState(false);
   const [panOffsetMs, setPanOffsetMs] = useState(0);
-  const [pauseEndMs, setPauseEndMs] = useState(0);
-  const [, setTick] = useState(0);
 
-  // Keep the time axis scrolling in live mode even without re-render from props
+  // Mirror state into refs so the rAF draw loop & tick callback read latest
+  const windowSecRef = useRef(windowSec);
+  const isPausedRef = useRef(isPaused);
+  const panOffsetRef = useRef(panOffsetMs);
+  const channelRef = useRef(channel);
+  const tripRef = useRef(tripRaw);
+  const pauseEndRef = useRef(0);
+  const refEndRef = useRef(nowMs());
+  const lastLenRef = useRef(-1);
+  const lastChRef = useRef(-1);
+  const prevViewRef = useRef({ vs: null, ve: null, len: -1, ch: -1 });
+
+  useEffect(() => { windowSecRef.current = windowSec; }, [windowSec]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => { panOffsetRef.current = panOffsetMs; }, [panOffsetMs]);
+  useEffect(() => { channelRef.current = channel; }, [channel]);
+  useEffect(() => { tripRef.current = tripRaw; }, [tripRaw]);
+
+  // ---- Single imperative draw loop (decoupled from React re-renders) ----
   useEffect(() => {
-    if (isPaused) return;
-    const id = setInterval(() => setTick((t) => t + 1), 100);
-    return () => clearInterval(id);
-  }, [isPaused]);
+    let raf;
+    const draw = () => {
+      const chart = chartRef.current;
+      if (chart) {
+        const windowMs = windowSecRef.current * 1000;
+        const refEnd = isPausedRef.current ? pauseEndRef.current : nowMs();
+        refEndRef.current = refEnd;
+        const viewEnd = refEnd + panOffsetRef.current;
+        const viewStart = viewEnd - windowMs;
+        const samples = samplesRef.current;
+        const ch = channelRef.current;
 
-  // Space = pause/resume (global, ignore form fields)
+        // Skip redraw entirely when nothing visible has changed (e.g. paused & idle)
+        const pv = prevViewRef.current;
+        if (pv.vs === viewStart && pv.ve === viewEnd && pv.len === samples.length && pv.ch === ch) {
+          raf = requestAnimationFrame(draw);
+          return;
+        }
+        prevViewRef.current = { vs: viewStart, ve: viewEnd, len: samples.length, ch };
+
+        const ds0 = chart.data.datasets[0];
+        // Rebuild point array only when the buffer or channel actually changed
+        if (samples.length !== lastLenRef.current || ch !== lastChRef.current) {
+          ds0.data = samples.map((s) => ({ x: s.t, y: s.mv }));
+          ds0.borderColor = CH_COLORS[ch];
+          ds0.backgroundColor = CH_COLORS[ch] + '22';
+          ds0.label = `${CH_NAMES[ch]} (mV)`;
+          lastLenRef.current = samples.length;
+          lastChRef.current = ch;
+        }
+
+        const ds1 = chart.data.datasets[1];
+        const trip = tripRef.current;
+        if (Number.isFinite(trip)) {
+          const ty = rawToMv(trip);
+          ds1.data = [{ x: viewStart, y: ty }, { x: viewEnd, y: ty }];
+          ds1.hidden = false;
+        } else {
+          ds1.data = [];
+          ds1.hidden = true;
+        }
+
+        chart.options.scales.x.min = viewStart;
+        chart.options.scales.x.max = viewEnd;
+        chart.update('none');
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [samplesRef]);
+
+  // Space = pause/resume
   useEffect(() => {
     const onKey = (e) => {
       const tag = e.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.code === 'Space') {
         e.preventDefault();
-        setIsPaused((p) => {
-          if (!p) setPauseEndMs(nowMs());
-          setPanOffsetMs(0);
-          return !p;
-        });
+        doTogglePause();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const togglePause = () => {
+  function doTogglePause() {
     setIsPaused((p) => {
-      if (!p) setPauseEndMs(nowMs());
+      const next = !p;
+      isPausedRef.current = next;
+      if (next) pauseEndRef.current = nowMs();
+      panOffsetRef.current = 0;
       setPanOffsetMs(0);
-      return !p;
+      return next;
     });
-  };
+  }
 
-  // View window
-  const windowMs = windowSec * 1000;
-  const refEnd = isPaused ? pauseEndMs : nowMs();
-  const viewEnd = refEnd + panOffsetMs;
-  const viewStart = viewEnd - windowMs;
-
-  // Drag-to-pan (only when paused)
+  // ---- Drag-to-pan (paused only) ----
   const onPointerDown = (e) => {
-    if (!isPaused) return;
-    dragRef.current = { active: true, startX: e.clientX, startPan: panOffsetMs };
+    if (!isPausedRef.current) return;
+    dragRef.current = { active: true, startX: e.clientX, startPan: panOffsetRef.current };
   };
   const onPointerMove = (e) => {
     const drag = dragRef.current;
-    if (!drag.active || !isPaused) return;
+    if (!drag.active || !isPausedRef.current) return;
     const chart = chartRef.current;
     if (!chart || !chart.chartArea) return;
+    const windowMs = windowSecRef.current * 1000;
     const pxPerMs = chart.chartArea.width / windowMs;
     const dx = e.clientX - drag.startX;
     let p = drag.startPan - dx / pxPerMs;
     if (p > 0) p = 0;
+    const samples = samplesRef.current;
     if (samples.length) {
-      const minPan = samples[0].t - pauseEndMs + windowMs * 0.1;
+      const minPan = samples[0].t - pauseEndRef.current + windowMs * 0.1;
       if (p < minPan) p = minPan;
     }
+    panOffsetRef.current = p;
     setPanOffsetMs(p);
   };
-  const onPointerUp = () => {
-    dragRef.current.active = false;
-  };
-  const resetPan = () => setPanOffsetMs(0);
+  const onPointerUp = () => { dragRef.current.active = false; };
+  const resetPan = () => { panOffsetRef.current = 0; setPanOffsetMs(0); };
 
   const exportCsv = () => {
+    const samples = samplesRef.current;
     if (!samples.length) return;
     const rows = ['timestamp_ms,iso_time,channel,raw,mv'];
     for (const s of samples) {
@@ -146,13 +203,15 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
     URL.revokeObjectURL(url);
   };
 
-  const data = useMemo(() => {
-    const tripMv = Number.isFinite(tripRaw) ? rawToMv(tripRaw) : null;
-    return {
+  // ---- Stable initial data & options (never replaced → no fight with rAF) ----
+  const initialDataRef = useRef(null);
+  if (!initialDataRef.current) {
+    const color = CH_COLORS[channel];
+    initialDataRef.current = {
       datasets: [
         {
           label: `${CH_NAMES[channel]} (mV)`,
-          data: samples.map((s) => ({ x: s.t, y: s.mv })),
+          data: [],
           borderColor: color,
           backgroundColor: color + '22',
           borderWidth: 2,
@@ -160,28 +219,22 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
           fill: true,
           tension: 0.25,
         },
-        ...(tripMv !== null
-          ? [
-              {
-                label: 'Threshold bocor',
-                data: [
-                  { x: viewStart, y: tripMv },
-                  { x: viewEnd, y: tripMv },
-                ],
-                borderColor: '#f85149',
-                borderWidth: 1.5,
-                borderDash: [6, 4],
-                pointRadius: 0,
-                fill: false,
-              },
-            ]
-          : []),
+        {
+          label: 'Threshold bocor',
+          data: [],
+          borderColor: '#f85149',
+          borderWidth: 1.5,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+        },
       ],
     };
-  }, [samples, channel, tripRaw, color, viewStart, viewEnd]);
+  }
 
-  const options = useMemo(
-    () => ({
+  const optionsRef = useRef(null);
+  if (!optionsRef.current) {
+    optionsRef.current = {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
@@ -189,13 +242,12 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
       scales: {
         x: {
           type: 'linear',
-          min: viewStart,
-          max: viewEnd,
           ticks: {
             color: '#8b949e',
             maxTicksLimit: 8,
             autoSkip: true,
-            callback: (value) => fmtTime(value, isPaused, refEnd, windowMs),
+            callback: (value) =>
+              fmtTime(value, isPausedRef.current, refEndRef.current, windowSecRef.current * 1000),
           },
           grid: { color: '#21262d' },
         },
@@ -219,15 +271,14 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
               const whole = Math.floor(v);
               const ms = String(whole % 1000).padStart(3, '0');
               const sub = String(Math.round((v - whole) * 100)).padStart(2, '0');
-              return `${hh}:${mm}:${ss}.${ms}${sub}`; // sampai 0.01 ms
+              return `${hh}:${mm}:${ss}.${ms}${sub}`;
             },
             label: (c) => `${c.dataset.label}: ${Number(c.parsed.y).toFixed(2)} mV`,
           },
         },
       },
-    }),
-    [viewStart, viewEnd, isPaused, refEnd, windowMs]
-  );
+    };
+  }
 
   return (
     <div className={`card space-y-3 ${leak ? 'border-danger' : ''}`}>
@@ -241,7 +292,7 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
           className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
             isPaused ? 'border-warn bg-warn/15 text-warn' : 'border-border hover:bg-border'
           }`}
-          onClick={togglePause}
+          onClick={doTogglePause}
           title="Pause / Resume (Space)"
         >
           {isPaused ? '▶ Resume' : '⏸ Pause'}
@@ -253,7 +304,10 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
             className="rounded-md border border-border bg-card px-2 py-1 text-text"
             value={windowSec}
             onChange={(e) => {
-              setWindowSec(parseFloat(e.target.value));
+              const w = parseFloat(e.target.value);
+              setWindowSec(w);
+              windowSecRef.current = w;
+              panOffsetRef.current = 0;
               setPanOffsetMs(0);
             }}
           >
@@ -276,14 +330,16 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
 
       {/* Chart */}
       <div
-        className={`relative h-[320px] ${isPaused ? (dragRef.current.active ? 'cursor-grabbing' : 'cursor-grab') : ''}`}
+        className={`relative h-[320px] ${
+          isPaused ? (dragRef.current.active ? 'cursor-grabbing' : 'cursor-grab') : ''
+        }`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
         onDoubleClick={resetPan}
       >
-        <Line ref={chartRef} data={data} options={options} />
+        <Line ref={chartRef} data={initialDataRef.current} options={optionsRef.current} />
         {isPaused && (
           <span className="pointer-events-none absolute right-3 top-2 rounded bg-warn/20 px-2 py-0.5 text-xs font-semibold text-warn">
             ⏸ PAUSED

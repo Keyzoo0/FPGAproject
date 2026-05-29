@@ -24,10 +24,13 @@ const blankCal = () => ({
 export default function App() {
   const [channel, setChannel] = useState(0);
   const [tab, setTab] = useState('dashboard');
-  const [samples, setSamples] = useState([]);
   const [latest, setLatest] = useState(null);
   const [cal, setCal] = useState(blankCal);
   const [saveState, setSaveState] = useState('');
+
+  // Buffer grafik di ref (di luar React state) supaya chart bisa di-update
+  // imperatif via requestAnimationFrame, tidak memicu re-render tiap sampel.
+  const samplesRef = useRef([]);
 
   const channelRef = useRef(channel);
   useEffect(() => { channelRef.current = channel; }, [channel]);
@@ -37,11 +40,9 @@ export default function App() {
     if (ch !== channelRef.current) return; // ignore frames from other channel
     const mv = rawToMv(raw);
     setLatest({ raw, mv, t });
-    setSamples((prev) => {
-      const next = prev.length >= MAX_BUFFER ? prev.slice(1) : prev.slice();
-      next.push({ t, mv, raw });
-      return next;
-    });
+    const buf = samplesRef.current;
+    buf.push({ t, mv, raw });
+    if (buf.length > MAX_BUFFER) buf.splice(0, buf.length - MAX_BUFFER);
     // live auto-track min/max (spec)
     setCal((prev) => {
       const c = prev[ch];
@@ -71,7 +72,7 @@ export default function App() {
   const switchChannel = useCallback(
     (ch) => {
       setChannel(ch);
-      setSamples([]);
+      samplesRef.current = [];
       setLatest(null);
       if (connState === ConnState.CONNECTED) {
         send(`SEL:${ch}`);
@@ -163,7 +164,7 @@ export default function App() {
         <DashboardTab
           channel={channel}
           latest={latest}
-          samples={samples}
+          samplesRef={samplesRef}
           alarm={alarm}
           tripRaw={tripRaw}
         />
