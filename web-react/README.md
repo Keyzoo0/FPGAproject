@@ -15,18 +15,19 @@ npm run preview  # sajikan dist/ di http://localhost:4173
 
 > Web Serial API hanya didukung Chrome / Edge (desktop).
 
-### Penting: jangan buka `dist/index.html` lewat `file://`
+### Hasil build = satu file `index.html` (bisa di-drag ke Chrome)
 
-Aplikasi **harus disajikan lewat server lokal** (`http://localhost`) atau HTTPS,
-karena `navigator.serial` (Web Serial API) hanya tersedia di *secure context* —
-membuka file `dist/index.html` langsung (double-click → `file://`) membuat tombol
-Connect mati, plus modul JS diblokir CORS. Sajikan dengan salah satu cara:
+Build memakai `vite-plugin-singlefile`, sehingga seluruh JS, CSS, dan logo
+**di-inline** menjadi **satu** `dist/index.html` tanpa file eksternal. File ini
+bisa langsung **di-drag/dibuka di Chrome** (`file://`) — tidak perlu server.
+
+Chrome memperlakukan `file://` sebagai *secure context* (`window.isSecureContext`
+== `true`), jadi Web Serial API umumnya tetap aktif. Jika di versi Chrome Anda
+tombol Connect tidak aktif saat dibuka via `file://`, sajikan lewat localhost
+sebagai fallback:
 
 ```bash
-npm run preview                                  # → http://localhost:4173
-# atau
-npx serve dist                                   # server statis
-python3 -m http.server 8000 --directory dist     # → http://localhost:8000
+npm run preview   # → http://localhost:4173
 ```
 
 ## Alur
