@@ -10,9 +10,24 @@ UART untuk Deteksi Arus Bocor Menggunakan Web Monitoring"* — Pranaja Ananta (1
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # output ke dist/
+npm run preview  # sajikan dist/ di http://localhost:4173
 ```
 
 > Web Serial API hanya didukung Chrome / Edge (desktop).
+
+### Penting: jangan buka `dist/index.html` lewat `file://`
+
+Aplikasi **harus disajikan lewat server lokal** (`http://localhost`) atau HTTPS,
+karena `navigator.serial` (Web Serial API) hanya tersedia di *secure context* —
+membuka file `dist/index.html` langsung (double-click → `file://`) membuat tombol
+Connect mati, plus modul JS diblokir CORS. Sajikan dengan salah satu cara:
+
+```bash
+npm run preview                                  # → http://localhost:4173
+# atau
+npx serve dist                                   # server statis
+python3 -m http.server 8000 --directory dist     # → http://localhost:8000
+```
 
 ## Alur
 
