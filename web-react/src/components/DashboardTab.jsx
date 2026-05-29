@@ -13,7 +13,7 @@ function Stat({ title, value, unit }) {
   );
 }
 
-export default function DashboardTab({ channel, latest, samplesRef, latestRef, alarm, tripRaw }) {
+export default function DashboardTab({ channel, latest, samplesRef, latestRef, alarm, tripRaw, maxValRaw }) {
   const mv = latest ? latest.mv : null;
   const v = latest ? mvToV(latest.mv) : null;
   const raw = latest ? latest.raw : null;
@@ -52,6 +52,7 @@ export default function DashboardTab({ channel, latest, samplesRef, latestRef, a
         latestRef={latestRef}
         channel={channel}
         tripRaw={tripRaw}
+        maxValRaw={maxValRaw}
         leak={alarm.leak}
       />
     </div>

@@ -28,16 +28,23 @@ const WINDOWS = [
   { v: 300, label: '5 min' },
 ];
 
+// Sumbu-X diplot RELATIF terhadap timeOrigin agar angkanya kecil
+// (epoch ms absolut ~1.7e12 membuat presisi float Chart.js kacau pada window kecil).
+const BASE = typeof performance !== 'undefined' && performance.timeOrigin
+  ? performance.timeOrigin
+  : 0;
+
 function fmtTime(value, paused, refEnd, windowMs) {
   if (paused) {
-    const d = new Date(value);
+    const abs = value + BASE; // kembalikan ke epoch absolut untuk label jam
+    const d = new Date(abs);
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     const ss = String(d.getSeconds()).padStart(2, '0');
     if (windowMs < 100) {
-      const whole = Math.floor(value);
+      const whole = Math.floor(abs);
       const ms = String(whole % 1000).padStart(3, '0');
-      const sub = String(Math.round((value - whole) * 100)).padStart(2, '0');
+      const sub = String(Math.round((abs - whole) * 100)).padStart(2, '0');
       return `${ss}.${ms}${sub}`;
     }
     if (windowMs < 2000) {
@@ -57,11 +64,12 @@ function fmtTime(value, paused, refEnd, windowMs) {
 const RESAMPLE_MS = 10;
 const RESAMPLE_MAX = 600; // ~6 s @ 100 Hz
 
-export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, leak }) {
+export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, maxValRaw, leak }) {
   const chartRef = useRef(null);
   const dragRef = useRef({ active: false, startX: 0, startPan: 0 });
   const resampleRef = useRef([]);
   const lastModeRef = useRef(null);
+  const maxRef = useRef(maxValRaw);
 
   const [windowSec, setWindowSec] = useState(20);
   const [isPaused, setIsPaused] = useState(false);
@@ -84,6 +92,7 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, lea
   useEffect(() => { panOffsetRef.current = panOffsetMs; }, [panOffsetMs]);
   useEffect(() => { channelRef.current = channel; }, [channel]);
   useEffect(() => { tripRef.current = tripRaw; }, [tripRaw]);
+  useEffect(() => { maxRef.current = maxValRaw; }, [maxValRaw]);
 
   // ---- Single imperative draw loop (decoupled from React re-renders) ----
   useEffect(() => {
@@ -92,7 +101,8 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, lea
       const chart = chartRef.current;
       if (chart) {
         const windowMs = windowSecRef.current * 1000;
-        const refEnd = isPausedRef.current ? pauseEndRef.current : nowMs();
+        // semua nilai waktu relatif terhadap BASE (timeOrigin)
+        const refEnd = (isPausedRef.current ? pauseEndRef.current : nowMs()) - BASE;
         refEndRef.current = refEnd;
         const viewEnd = refEnd + panOffsetRef.current;
         const viewStart = viewEnd - windowMs;
@@ -115,7 +125,7 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, lea
         const ds0 = chart.data.datasets[0];
         // Rebuild point array only when buffer / channel / mode changed
         if (samples.length !== lastLenRef.current || ch !== lastChRef.current || useResample !== lastModeRef.current) {
-          ds0.data = samples.map((s) => ({ x: s.t, y: s.mv }));
+          ds0.data = samples.map((s) => ({ x: s.t - BASE, y: s.mv }));
           ds0.borderColor = CH_COLORS[ch];
           ds0.backgroundColor = CH_COLORS[ch] + '22';
           ds0.label = `${CH_NAMES[ch]} (mV)`;
@@ -137,6 +147,17 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, lea
 
         chart.options.scales.x.min = viewStart;
         chart.options.scales.x.max = viewEnd;
+
+        // Y axis konstan: 0 .. 2 × maxVal (fallback autoscale bila maxVal belum ada)
+        const maxMv = Number.isFinite(maxRef.current) ? rawToMv(maxRef.current) : null;
+        if (maxMv !== null && maxMv > 0) {
+          chart.options.scales.y.min = 0;
+          chart.options.scales.y.max = 2 * maxMv;
+        } else {
+          chart.options.scales.y.min = undefined;
+          chart.options.scales.y.max = undefined;
+        }
+
         chart.update('none');
       }
       raf = requestAnimationFrame(draw);
@@ -294,7 +315,7 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, lea
           callbacks: {
             title: (items) => {
               if (!items.length) return '';
-              const v = items[0].parsed.x;
+              const v = items[0].parsed.x + BASE; // relatif → epoch absolut
               const d = new Date(v);
               const hh = String(d.getHours()).padStart(2, '0');
               const mm = String(d.getMinutes()).padStart(2, '0');
