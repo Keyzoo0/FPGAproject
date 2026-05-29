@@ -1,4 +1,5 @@
 import LeakChart from './LeakChart.jsx';
+import SignalFlow from './SignalFlow.jsx';
 import { CH_NAMES, rawToMv, mvToV } from '../lib/adc.js';
 
 function Stat({ title, value, unit }) {
@@ -20,6 +21,9 @@ export default function DashboardTab({ channel, latest, samplesRef, latestRef, a
 
   return (
     <div className="space-y-4">
+      {/* Signal flow (hardware) */}
+      <SignalFlow />
+
       {/* Alarm banner */}
       <div
         className={`rounded-xl border p-4 text-center ${

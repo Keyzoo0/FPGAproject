@@ -26,6 +26,37 @@
   .btn-secondary {
     @apply btn border border-border bg-card text-text hover:bg-border;
   }
+
+  /* Tombol kontrol grafik (gaya web lama) */
+  .ctrl-btn {
+    @apply inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-4 py-2 text-[13px] font-semibold text-text transition-colors;
+  }
+  .ctrl-btn:hover {
+    @apply border-accent;
+  }
+  .ctrl-btn.active {
+    @apply border-accent bg-accent/20 text-white;
+  }
+
+  /* Signal Flow diagram (gaya web lama) */
+  .flow-node {
+    @apply min-w-[140px] rounded-lg border-2 border-accent bg-card px-5 py-4 text-center;
+    box-shadow: 0 0 18px rgba(88, 166, 255, 0.25);
+  }
+  .flow-arrow {
+    @apply relative h-0.5 min-w-[16px] flex-1 bg-accent;
+  }
+  .flow-arrow::after {
+    content: '';
+    position: absolute;
+    right: -1px;
+    top: -5px;
+    width: 0;
+    height: 0;
+    border-left: 8px solid #58a6ff;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+  }
 }
 
 /* Pulsing alarm animation */

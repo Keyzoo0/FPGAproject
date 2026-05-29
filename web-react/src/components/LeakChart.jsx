@@ -239,25 +239,6 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, min
   const onPointerUp = () => { dragRef.current.active = false; };
   const resetPan = () => { panOffsetRef.current = 0; setPanOffsetMs(0); };
 
-  const exportCsv = () => {
-    const samples = samplesRef.current;
-    if (!samples.length) return;
-    const rows = ['timestamp_ms,iso_time,channel,raw,mv'];
-    for (const s of samples) {
-      rows.push(
-        [s.t, new Date(s.t).toISOString(), channel, s.raw, s.mv.toFixed(3)].join(',')
-      );
-    }
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    a.download = `leak_${CH_NAMES[channel]}_${ts}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   // ---- Stable initial data & options (never replaced → no fight with rAF) ----
   const initialDataRef = useRef(null);
   if (!initialDataRef.current) {
@@ -344,13 +325,12 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, min
         </h3>
 
         <button
-          className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${
-            isPaused ? 'border-warn bg-warn/15 text-warn' : 'border-border hover:bg-border'
-          }`}
+          className={`ctrl-btn ${isPaused ? 'active' : ''}`}
           onClick={doTogglePause}
           title="Pause / Resume (Space)"
         >
-          {isPaused ? '▶ Resume' : '⏸ Pause'}
+          <span>{isPaused ? '▶' : '⏸'}</span>
+          <span>{isPaused ? 'Resume' : 'Pause'}</span>
         </button>
 
         <label className="flex items-center gap-1 text-sm text-muted">
@@ -374,14 +354,6 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, min
           </select>
         </label>
 
-        <button
-          className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-border"
-          onClick={exportCsv}
-          title="Export buffered data ke CSV"
-        >
-          💾 Export CSV
-        </button>
-
         {windowSec < 1 && (
           <span className="rounded bg-accent/15 px-2 py-1 text-xs text-accent">
             resample 10&nbsp;ms
@@ -402,7 +374,7 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, min
       >
         <Line ref={chartRef} data={initialDataRef.current} options={optionsRef.current} />
         {isPaused && (
-          <span className="pointer-events-none absolute right-3 top-2 rounded bg-warn/20 px-2 py-0.5 text-xs font-semibold text-warn">
+          <span className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-xl bg-warn px-3.5 py-1 text-xs font-bold tracking-widest text-black">
             ⏸ PAUSED
           </span>
         )}
