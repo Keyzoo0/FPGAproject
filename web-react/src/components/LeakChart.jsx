@@ -329,7 +329,16 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, min
           onClick={doTogglePause}
           title="Pause / Resume (Space)"
         >
-          <span>{isPaused ? '▶' : '⏸'}</span>
+          {isPaused ? (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="#8b949e" aria-hidden="true">
+              <path d="M3 1 L10 6 L3 11 Z" />
+            </svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="#8b949e" aria-hidden="true">
+              <rect x="2" y="1" width="3" height="10" />
+              <rect x="7" y="1" width="3" height="10" />
+            </svg>
+          )}
           <span>{isPaused ? 'Resume' : 'Pause'}</span>
         </button>
 
@@ -374,8 +383,12 @@ export default function LeakChart({ samplesRef, latestRef, channel, tripRaw, min
       >
         <Line ref={chartRef} data={initialDataRef.current} options={optionsRef.current} />
         {isPaused && (
-          <span className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-xl bg-warn px-3.5 py-1 text-xs font-bold tracking-widest text-black">
-            ⏸ PAUSED
+          <span className="pointer-events-none absolute left-1/2 top-3 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-xl bg-[#30363d] px-3.5 py-1 text-xs font-bold tracking-widest text-muted">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="#8b949e" aria-hidden="true">
+              <rect x="2" y="1" width="3" height="10" />
+              <rect x="7" y="1" width="3" height="10" />
+            </svg>
+            PAUSED
           </span>
         )}
       </div>
