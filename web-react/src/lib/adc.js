@@ -16,6 +16,13 @@ export const SENS_MIN = 20;
 export const SENS_MAX = 80;
 export const SENS_DEFAULT = 50;
 
+// Timestamp epoch resolusi tinggi (sub-milidetik bila browser mengizinkan).
+// Catatan: browser umumnya meng-clamp performance.now() ke ~0.1 ms.
+export const nowMs = () =>
+  typeof performance !== 'undefined' && performance.timeOrigin
+    ? performance.timeOrigin + performance.now()
+    : Date.now();
+
 // raw ADC (LSB) → milivolt
 export const rawToMv = (raw) => raw * LSB_MV;
 // milivolt → volt

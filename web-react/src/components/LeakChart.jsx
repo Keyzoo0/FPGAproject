@@ -9,11 +9,14 @@ import {
   Legend,
   Filler,
 } from 'chart.js';
-import { CH_COLORS, CH_NAMES, rawToMv } from '../lib/adc.js';
+import { CH_COLORS, CH_NAMES, rawToMv, nowMs } from '../lib/adc.js';
 
 ChartJS.register(LineElement, PointElement, LinearScale, Tooltip, Legend, Filler);
 
 const WINDOWS = [
+  { v: 0.05, label: '50 ms' },
+  { v: 0.1, label: '100 ms' },
+  { v: 0.2, label: '200 ms' },
   { v: 0.5, label: '0.5 s' },
   { v: 1, label: '1 s' },
   { v: 2, label: '2 s' },
@@ -31,15 +34,23 @@ function fmtTime(value, paused, refEnd, windowMs) {
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     const ss = String(d.getSeconds()).padStart(2, '0');
+    if (windowMs < 100) {
+      // resolusi 0.01 ms → ss.mmm + 2 digit sub-ms
+      const whole = Math.floor(value);
+      const ms = String(whole % 1000).padStart(3, '0');
+      const sub = String(Math.round((value - whole) * 100)).padStart(2, '0');
+      return `${ss}.${ms}${sub}`;
+    }
     if (windowMs < 2000) {
       return `${ss}.${String(d.getMilliseconds()).padStart(3, '0')}`;
     }
     return `${hh}:${mm}:${ss}`;
   }
-  const dt = (value - refEnd) / 1000;
-  if (windowMs < 2000) return dt.toFixed(2) + 's';
-  if (windowMs < 10000) return dt.toFixed(1) + 's';
-  return Math.round(dt) + 's';
+  const dtMs = value - refEnd;
+  if (windowMs < 100) return dtMs.toFixed(2) + ' ms'; // 0.01 ms
+  if (windowMs < 1000) return (dtMs / 1000).toFixed(3) + 's'; // 1 ms
+  if (windowMs < 10000) return (dtMs / 1000).toFixed(1) + 's';
+  return Math.round(dtMs / 1000) + 's';
 }
 
 export default function LeakChart({ samples, channel, tripRaw, leak }) {
@@ -68,7 +79,7 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
       if (e.code === 'Space') {
         e.preventDefault();
         setIsPaused((p) => {
-          if (!p) setPauseEndMs(Date.now());
+          if (!p) setPauseEndMs(nowMs());
           setPanOffsetMs(0);
           return !p;
         });
@@ -80,7 +91,7 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
 
   const togglePause = () => {
     setIsPaused((p) => {
-      if (!p) setPauseEndMs(Date.now());
+      if (!p) setPauseEndMs(nowMs());
       setPanOffsetMs(0);
       return !p;
     });
@@ -88,7 +99,7 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
 
   // View window
   const windowMs = windowSec * 1000;
-  const refEnd = isPaused ? pauseEndMs : Date.now();
+  const refEnd = isPaused ? pauseEndMs : nowMs();
   const viewEnd = refEnd + panOffsetMs;
   const viewStart = viewEnd - windowMs;
 
@@ -200,8 +211,15 @@ export default function LeakChart({ samples, channel, tripRaw, leak }) {
           callbacks: {
             title: (items) => {
               if (!items.length) return '';
-              const d = new Date(items[0].parsed.x);
-              return d.toLocaleTimeString('id-ID', { hour12: false });
+              const v = items[0].parsed.x;
+              const d = new Date(v);
+              const hh = String(d.getHours()).padStart(2, '0');
+              const mm = String(d.getMinutes()).padStart(2, '0');
+              const ss = String(d.getSeconds()).padStart(2, '0');
+              const whole = Math.floor(v);
+              const ms = String(whole % 1000).padStart(3, '0');
+              const sub = String(Math.round((v - whole) * 100)).padStart(2, '0');
+              return `${hh}:${mm}:${ss}.${ms}${sub}`; // sampai 0.01 ms
             },
             label: (c) => `${c.dataset.label}: ${Number(c.parsed.y).toFixed(2)} mV`,
           },

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BAUD_RATE } from '../lib/adc.js';
+import { BAUD_RATE, nowMs } from '../lib/adc.js';
 
 // Connection state machine
 export const ConnState = {
@@ -51,7 +51,7 @@ export function useSerial({ onData, onCalib, onLog } = {}) {
       const ch = parseInt(parts[1], 10);
       const raw = parseInt(parts[2], 10);
       if (!Number.isNaN(ch) && !Number.isNaN(raw)) {
-        cb.current.onData?.({ ch, raw, t: Date.now() });
+        cb.current.onData?.({ ch, raw, t: nowMs() });
       }
     } else if (tag === 'C' && parts.length >= 5) {
       const ch = parseInt(parts[1], 10);
